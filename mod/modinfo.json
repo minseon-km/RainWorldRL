@@ -1,8 +1,8 @@
 ﻿{
-  "id": "testmod",
-  "name": "Test Mod",
+  "id": "rl",
+  "name": "RLProject",
   "version": "0.1.0",
-  "authors": "Author",
+  "authors": "Minseon Kim",
   "description": "Put a neat description here",
   "tags": [],
   "requirements": [],
