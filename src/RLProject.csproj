@@ -23,8 +23,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="System.Reflection.Emit" Version="4.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="Python.Runtime">
       <HintPath>obj\Release\Python.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Reflection.Emit">
+      <HintPath>..\..\..\..\..\..\..\Users\min39\.nuget\packages\system.reflection.emit\4.7.0\lib\netstandard2.0\System.Reflection.Emit.dll</HintPath>
     </Reference>
   </ItemGroup>
     
@@ -37,7 +45,7 @@
   </Target>
     
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="xcopy /Y &quot;$(TargetDir)$(TargetName).dll&quot; &quot;C:\Program Files (x86)\Steam\steamapps\common\Rain World\BepInEx\plugins\&quot;&#xD;&#xA;xcopy /Y &quot;C:\Users\min39\anaconda3\envs\rwrl\python313.dll&quot; &quot;$(TargetDir)&quot;&#xD;&#xA;xcopy /Y &quot;C:\Users\min39\anaconda3\envs\rwrl\DLLs\_decimal.pyd&quot; &quot;$(TargetDir)&quot;" />
+    <Exec Command="xcopy /Y &quot;$(TargetDir)$(TargetName).dll&quot; &quot;C:\Program Files (x86)\Steam\steamapps\common\Rain World\BepInEx\plugins\&quot;&#xD;&#xA;xcopy /Y &quot;C:\Users\min39\anaconda3\envs\rwrl\python310.dll&quot; &quot;$(TargetDir)&quot;&#xD;&#xA;xcopy /Y &quot;C:\Users\min39\anaconda3\envs\rwrl\DLLs\_decimal.pyd&quot; &quot;$(TargetDir)&quot;&#xD;&#xA;xcopy /Y &quot;C:\Users\min39\.nuget\packages\system.reflection.emit\4.7.0\lib\netstandard2.0\&quot; &quot;$(TargetDir)&quot;" />
   </Target>
 
 </Project>
