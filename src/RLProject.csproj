@@ -21,6 +21,12 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Python.Runtime">
+      <HintPath>obj\Release\Python.Runtime.dll</HintPath>
+    </Reference>
+  </ItemGroup>
     
   <Target Name="GenerateMod" AfterTargets="PostBuildEvent" Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
     <ItemGroup>
@@ -28,6 +34,10 @@
     </ItemGroup>
         
     <Delete Files="@(RemovePlugins)" />
+  </Target>
+    
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="xcopy /Y &quot;$(TargetDir)$(TargetName).dll&quot; &quot;C:\Program Files (x86)\Steam\steamapps\common\Rain World\BepInEx\plugins\&quot;&#xD;&#xA;xcopy /Y &quot;C:\Users\min39\anaconda3\envs\rwrl\python313.dll&quot; &quot;$(TargetDir)&quot;&#xD;&#xA;xcopy /Y &quot;C:\Users\min39\anaconda3\envs\rwrl\DLLs\_decimal.pyd&quot; &quot;$(TargetDir)&quot;" />
   </Target>
 
 </Project>

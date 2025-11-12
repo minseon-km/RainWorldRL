@@ -3,6 +3,8 @@ using BepInEx.Logging;
 using System.Security.Permissions;
 using UnityEngine; // Time.deltaTime 사용을 위해 필요
 using System.Collections.Generic; // List 사용을 위해 필요
+using Python.Runtime;
+using System.IO;
 
 // Unity/Game 타입에 대한 가상의 using 구문 (타겟 게임에 맞게 변경 필요)
 // using RWCustom; 
@@ -33,7 +35,7 @@ sealed class Plugin : BaseUnityPlugin
 
         // --- Player.Update 후킹 추가 ---
         // Player 인스턴스(self)를 매 프레임 얻을 수 있습니다.
-        On.Player.Update += Player_Update;
+        On.Player.UpdateMSC += Player_UpdateMSC;
     }
 
     private void OnModsInit(On.RainWorld.orig_OnModsInit orig, RainWorld self)
@@ -48,10 +50,9 @@ sealed class Plugin : BaseUnityPlugin
 
     // --- 핵심 로직: Player.Update 메서드 후킹 ---
     // (Player, Room, PhysicalObject 타입은 게임의 클래스명을 따릅니다.)
-    private void Player_Update(On.Player.orig_Update orig, Player self, bool eu)
+    private void Player_UpdateMSC(On.Player.orig_UpdateMSC orig, Player self)
     {
-        orig(self, eu); // 원본 Player.Update 메서드 호출 (필수)
-
+        
         // 1. 타이머 업데이트 및 체크
         logTimer += Time.deltaTime; // Unity의 마지막 프레임 이후 경과 시간
 
@@ -74,7 +75,10 @@ sealed class Plugin : BaseUnityPlugin
             // (AbstractCreature와 Room은 게임 내에서 정의된 클래스여야 합니다.)
             AbstractRoom currentRoom = self.abstractCreature.Room;
 
-            if (currentRoom != null)
+            if (self.dead == true)
+                currentRoom.realizedRoom.game.RestartGame();
+
+                if (currentRoom != null)
             {
                 // 2) 물리 개체 리스트에 접근 (physicalObjects[0]에 생물이 있다고 가정)
                 // (PhysicalObject는 게임 내에서 정의된 클래스여야 합니다.)
@@ -112,5 +116,6 @@ sealed class Plugin : BaseUnityPlugin
                 Logger.LogWarning("[RL State] Player is not currently loaded in a Room.");
             }
         }
+        orig(self); // 원본 Player.Update 메서드 호출 (필수)
     }
 }
