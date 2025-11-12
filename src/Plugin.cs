@@ -29,7 +29,12 @@ sealed class Plugin : BaseUnityPlugin
 {
     public static new ManualLogSource Logger;
     bool IsInit;
-    bool IsPythonnetInit = false;
+    bool IsTrain = true;
+    bool IsTimeSetup = false;
+    bool endflag = false;
+    float timescale = 1.0f;
+    float updatetime = 1.0f;
+    float realupdatetime = 0.0f;
 
     // --- 타이머 및 상수 필드 추가 ---
     private float logTimer = 0f;
@@ -59,6 +64,9 @@ sealed class Plugin : BaseUnityPlugin
         IsInit = true;
         
         Logger.LogDebug("RLProject Initialized.");
+
+        if (IsTrain) Time.timeScale = timescale;
+        realupdatetime = updatetime / timescale;
 
         listenThread = new Thread(new ThreadStart(StartTcpServer));
         listenThread.IsBackground = true; // 게임 종료 시 스레드 자동 종료
@@ -91,7 +99,7 @@ sealed class Plugin : BaseUnityPlugin
         // 1. 타이머 업데이트 및 체크
         logTimer += Time.deltaTime; // Unity의 마지막 프레임 이후 경과 시간
 
-        if (logTimer >= logInterval)
+        if (logTimer >= realupdatetime)
         {
             logTimer = 0f; // 타이머 재설정
 
@@ -110,47 +118,65 @@ sealed class Plugin : BaseUnityPlugin
             // (AbstractCreature와 Room은 게임 내에서 정의된 클래스여야 합니다.)
             AbstractRoom currentRoom = self.abstractCreature.Room;
 
-            if (self.dead == true)
-                currentRoom.realizedRoom.game.RestartGame();
-
-            SendObservationAndReceiveAction(self);
-
-            if (currentRoom != null)
+            if (self.dead == true || endflag == true)
             {
-                // 2) 물리 개체 리스트에 접근 (physicalObjects[0]에 생물이 있다고 가정)
-                // (PhysicalObject는 게임 내에서 정의된 클래스여야 합니다.)
-                List<AbstractCreature> creatureList = currentRoom.creatures;
-
-                Logger.LogInfo($"[RL State] --- Total Creatures: {creatureList.Count} ---");
-
-                int creatureIndex = 0;
-                foreach (AbstractCreature aCreature in creatureList)
-                {
-                    // 2) 추상 생물체가 현재 방에 '실체화(Realized)'되었는지 확인
-                    if (aCreature.realizedCreature != null)
-                    {
-                        // Player 자신은 추적 목록에서 제외 (선택 사항)
-                        if (aCreature.realizedCreature == self)
-                        {
-                            // Logger.LogInfo($"[RL State] Player: ({self.mainBodyChunk.pos.x:F2}, {self.mainBodyChunk.pos.y:F2}) (Skipping Player in Creature List)");
-                            continue;
-                        }
-
-                        // 3) 실체화된 Creature 객체 (Lizard, 등)에서 위치 정보 추출
-                        Creature realizedCreature = aCreature.realizedCreature;
-
-                        // mainBodyChunk는 Creature 클래스에 존재합니다.
-                        float creatureX = realizedCreature.mainBodyChunk.pos.x;
-                        float creatureY = realizedCreature.mainBodyChunk.pos.y;
-
-                        Logger.LogInfo($"[RL State] Creature {creatureIndex}: ({creatureX:F2}, {creatureY:F2})");
-                        creatureIndex++;
-                    }
-                }
+                int action = SendObservationAndReceiveAction(self);
+                currentRoom.realizedRoom.game.RestartGame();
+                endflag = false;
             }
             else
             {
-                Logger.LogWarning("[RL State] Player is not currently loaded in a Room.");
+                int action = SendObservationAndReceiveAction(self);
+
+                //=== action space ===
+                //0 : left
+                //1 : right
+                //2 : down
+                //3 : up
+                //4 : jump
+                if (action < 0)
+                {
+                    endflag = true;
+                }
+
+
+                //if (currentRoom != null)
+                //{
+                //    // 2) 물리 개체 리스트에 접근 (physicalObjects[0]에 생물이 있다고 가정)
+                //    // (PhysicalObject는 게임 내에서 정의된 클래스여야 합니다.)
+                //    List<AbstractCreature> creatureList = currentRoom.creatures;
+
+                //    Logger.LogInfo($"[RL State] --- Total Creatures: {creatureList.Count} ---");
+
+                //    int creatureIndex = 0;
+                //    foreach (AbstractCreature aCreature in creatureList)
+                //    {
+                //        // 2) 추상 생물체가 현재 방에 '실체화(Realized)'되었는지 확인
+                //        if (aCreature.realizedCreature != null)
+                //        {
+                //            // Player 자신은 추적 목록에서 제외 (선택 사항)
+                //            if (aCreature.realizedCreature == self)
+                //            {
+                //                // Logger.LogInfo($"[RL State] Player: ({self.mainBodyChunk.pos.x:F2}, {self.mainBodyChunk.pos.y:F2}) (Skipping Player in Creature List)");
+                //                continue;
+                //            }
+
+                //            // 3) 실체화된 Creature 객체 (Lizard, 등)에서 위치 정보 추출
+                //            Creature realizedCreature = aCreature.realizedCreature;
+
+                //            // mainBodyChunk는 Creature 클래스에 존재합니다.
+                //            float creatureX = realizedCreature.mainBodyChunk.pos.x;
+                //            float creatureY = realizedCreature.mainBodyChunk.pos.y;
+
+                //            Logger.LogInfo($"[RL State] Creature {creatureIndex}: ({creatureX:F2}, {creatureY:F2})");
+                //            creatureIndex++;
+                //        }
+                //    }
+                //}
+                //else
+                //{
+                //    Logger.LogWarning("[RL State] Player is not currently loaded in a Room.");
+                //}
             }
         }
         orig(self); // 원본 Player.Update 메서드 호출 (필수)
@@ -205,24 +231,25 @@ sealed class Plugin : BaseUnityPlugin
         return retlist;
     }
 
-    private void SendObservationAndReceiveAction(Player self)
+    private int SendObservationAndReceiveAction(Player self)
     {
-        if (stream == null || !client.Connected) return;
+        if (stream == null || !client.Connected) return -1;
 
         try
         {
-            // 1. 관찰(Observation) 데이터 준비 (직렬화)
-            // (예: 플레이어 위치 x, y, 생물 3마리 위치 x, y)
-            // 데이터를 JSON 문자열이나 바이트 배열로 변환해야 합니다.
-            // 여기서는 간단히 텍스트 직렬화를 가정합니다.
             List<float> obsData = GetCurrentObservationData(self);
-
-            // 1. 8개의 float 데이터 생성 및 직렬화
-            // 실제 게임 데이터 대신 테스트용 임시 배열을 사용합니다.
-            Logger.LogDebug(obsData.Count);
+                        
             float[] dataToSend = new float[] {
                 obsData[0], obsData[1], obsData[2], obsData[3], obsData[4], obsData[5], obsData[6], obsData[7]
             };
+
+            if (self.dead == true)
+            {
+                dataToSend = new float[] {
+                    -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f
+                };
+            }
+
 
             // 데이터를 바이트 배열로 변환합니다. (Float 하나당 4바이트)
             byte[] payloadBytes = new byte[dataToSend.Length * 4];
@@ -245,10 +272,13 @@ sealed class Plugin : BaseUnityPlugin
             {
                 int confirmationValue = BitConverter.ToInt32(confirmationBytes, 0);
                 Logger.LogInfo($"[C#] Received confirmation signal: {confirmationValue}");
+
+                return confirmationValue;
             }
             else
             {
                 Logger.LogWarning("[C#] Received 0 bytes (connection closed).");
+                return -1;
             }
         }
         catch (IOException ex) when (ex.InnerException is SocketException)
@@ -258,10 +288,12 @@ sealed class Plugin : BaseUnityPlugin
             stream.Close();
             client.Close();
             stream = null;
+            return -1;
         }
         catch (Exception ex)
         {
             Logger.LogError($"[C#] Communication Error: {ex.Message}");
+            return -1;
         }
     }
 }
