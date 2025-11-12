@@ -7,4 +7,5 @@ See [the modding wiki](https://rainworldmodding.miraheze.org/wiki/Downpour_Refer
 To update your mod to work in future updates, replace `PUBLIC-Assembly-CSharp.dll` and `HOOKS-Assembly-CSharp.dll` with the equivalents found in `Rain World/BepInEx/utils` and `Rain World/BepInEx/plugins` as well as `Assembly-CSharp-firstpass.dll` found in `Rain World/RainWorld_Data/Managed`.
 
 Download requirements.txt with :
-pip install requirements.txt
+
+`pip install requirements.txt`
