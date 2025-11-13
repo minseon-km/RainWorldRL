@@ -12,6 +12,8 @@ import torch.nn.functional as F
 
 import rainworld_connector as rc
 
+import modelloader as ml
+
 # hyperparameters
 learning_rate = 0.0005
 gamma = 0.98
@@ -87,7 +89,7 @@ class DuelingQnet(nn.Module):
         a = F.relu(self.fc_adv(x))
         v = self.value(v)
         a = self.adv(a)
-        a_avg = torch.mean(a, dim=1, keepdim=True)  # Fixed dimension issue
+        a_avg = torch.mean(a, dim=0, keepdim=True)  # Fixed dimension issue
         q = v + a - a_avg
         return q
 
@@ -138,6 +140,12 @@ def train_double_dqn(q, q_target, memory, optimizer):
 
 def run_experiment(algorithm_type="DQN", render=False):
     """Run experiment with specified algorithm type"""
+
+    modelload = input("Load Model? only for double DQN and DQN. (y, yes / No): ")
+    loadflag = modelload in ['y', 'yes']
+
+    
+
     print(f"\n=== Running {algorithm_type} Experiment ===")
 
     # Initialization
@@ -146,8 +154,12 @@ def run_experiment(algorithm_type="DQN", render=False):
         q_target = DuelingQnet()
         train_fn = train_double_dqn  # Dueling uses Double DQN training
     else:
-        q = Qnet()
-        q_target = Qnet()
+        if loadflag :
+            q = ml.load_model(Qnet(), "./models", "q")
+            q_target = ml.load_model(Qnet(), "./models", "q_target")
+        else :
+            q = Qnet()
+            q_target = Qnet()
         train_fn = train_dqn if algorithm_type == "DQN" else train_double_dqn
 
     q_target.load_state_dict(q.state_dict())
@@ -158,7 +170,7 @@ def run_experiment(algorithm_type="DQN", render=False):
     optimizer = optim.Adam(q.parameters(), lr=learning_rate)
 
     # for 3000 episodes
-    for n_epi in range(3000):
+    for n_epi in range(10):
         epsilon = max(0.01, 0.32 - 0.01*(n_epi/50)) #Linear annealing from 8% to 1%
         s = rc.receive_data(client_socket)
         #print(s.shape)
@@ -214,6 +226,8 @@ def main(socket):
 
     choice = input("Enter your choice (1-4): ")
 
+    
+
 
     # Ask about rendering
     #render_choice = input("Enable GUI visualization? (y/n): ").lower()
@@ -227,19 +241,23 @@ def main(socket):
     print(f"Running speed : {rspeed}")
     rc.send_data(client_socket, rspeed)
 
-
     if choice == "1":
-        run_experiment("DQN", render)
+        q, q_target = run_experiment("DQN", render)
     elif choice == "2":
-        run_experiment("Double_DQN", render)
+        q, q_target = run_experiment("Double_DQN", render)
     elif choice == "3":
-        run_experiment("Dueling_DQN", render)
+        q, q_target = run_experiment("Dueling_DQN", render)
     elif choice == "4":
         for alg in algorithms:
             run_experiment(alg, render)
     else:
         print("Invalid choice, running DQN by default")
-        run_experiment("DQN", render)
+        q, q_target = run_experiment("DQN", render)
+    
+    ml.save_model(q, './models', 'q')
+    ml.save_model(q_target, './models', 'q_target')
+
+    
 
 if __name__ == '__main__':
     client_socket = rc.main_connector()
