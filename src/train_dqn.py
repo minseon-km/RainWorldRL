@@ -20,7 +20,10 @@ batch_size = 32
 #x, y, position of all four creatures
 state_length = 8 #to implement, adjust this as 8
 #jump, or move to four direction
-action_length = 5 #same as above, adjust this as 5
+action_length = 6 #same as above, adjust this as 6
+rspeed = 1
+client_socket = None
+terminal_step = 600
 
 class ReplayBuffer():
     def __init__(self):
@@ -53,7 +56,7 @@ class Qnet(nn.Module):
         super(Qnet, self).__init__()
         self.fc1 = nn.Linear(state_length, 128)
         self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, action_length-1)
+        self.fc3 = nn.Linear(128, action_length)
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
@@ -92,7 +95,7 @@ class DuelingQnet(nn.Module):
         out = self.forward(obs)
         coin = random.random()
         if coin < epsilon:
-            return random.randint(0,action_length)
+            return random.randint(0,action_length - 1)
         else:
             return out.argmax().item()
 
@@ -133,7 +136,7 @@ def train_double_dqn(q, q_target, memory, optimizer):
         loss.backward()
         optimizer.step()
 
-def run_experiment(socket, algorithm_type="DQN", render=False):
+def run_experiment(algorithm_type="DQN", render=False):
     """Run experiment with specified algorithm type"""
     print(f"\n=== Running {algorithm_type} Experiment ===")
 
@@ -150,36 +153,45 @@ def run_experiment(socket, algorithm_type="DQN", render=False):
     q_target.load_state_dict(q.state_dict())
     memory = ReplayBuffer()
 
-    print_interval = 3
+    print_interval = 10
     score = 0.0
-    r = 1 #reward per timestamp
     optimizer = optim.Adam(q.parameters(), lr=learning_rate)
 
     # for 3000 episodes
     for n_epi in range(3000):
-        epsilon = max(0.01, 0.08 - 0.01*(n_epi/200)) #Linear annealing from 8% to 1%
-        s = rc.receive_data(socket)
+        epsilon = max(0.01, 0.32 - 0.01*(n_epi/50)) #Linear annealing from 8% to 1%
+        s = rc.receive_data(client_socket)
+        #print(s.shape)
         a = q.sample_action(torch.from_numpy(s).float(), epsilon)
         done = False
+        timestamp = 0
 
         while not done:
             a = q.sample_action(torch.from_numpy(s).float(), epsilon)
-            print(a)
-            rc.send_data(socket, a)
-            s_prime = rc.receive_data(socket)
-            print(s_prime)
+            rc.send_data(client_socket, a)
+            s_prime = rc.receive_data(client_socket)
             done = True if s_prime[0] < 0 else False
+            terminate = True if timestamp > terminal_step else False
             done_mask = 0.0 if done else 1.0
+            if done :
+                r = 0
+            elif terminate :
+                r = 100
+            else :
+                r = 1 
             memory.put((s,a,r/100.0,s_prime, done_mask))
             s = s_prime
 
             score += r
             if done:
-                print(n_epi, "episode done!")
-                rc.send_data(socket, -1)
+                rc.send_data(client_socket, -1)
+                break
+            if terminate :
+                print(n_epi, "success!")
+                rc.send_data(client_socket, -1)
                 break
 
-        if memory.size()>2000:
+        if memory.size()>200:
             train_fn(q, q_target, memory, optimizer)
 
         if n_epi%print_interval==0 and n_epi!=0:
@@ -200,28 +212,36 @@ def main(socket):
     print("3. Dueling DQN")
     print("4. Run all algorithms")
 
-    #choice = input("Enter your choice (1-4): ")
+    choice = input("Enter your choice (1-4): ")
 
-    choice = 1
 
     # Ask about rendering
     #render_choice = input("Enable GUI visualization? (y/n): ").lower()
     #render = render_choice in ['y', 'yes']
     render = False
+    
+    try :
+        rspeed = int(input("Running speed? (xN times faster) : "))
+    except :
+        rspeed = 1
+    print(f"Running speed : {rspeed}")
+    rc.send_data(client_socket, rspeed)
+
 
     if choice == "1":
-        run_experiment(socket, "DQN", render)
+        run_experiment("DQN", render)
     elif choice == "2":
-        run_experiment(socket, "Double_DQN", render)
+        run_experiment("Double_DQN", render)
     elif choice == "3":
-        run_experiment(socket, "Dueling_DQN", render)
+        run_experiment("Dueling_DQN", render)
     elif choice == "4":
         for alg in algorithms:
-            run_experiment(socket, alg, render)
+            run_experiment(alg, render)
     else:
         print("Invalid choice, running DQN by default")
-        run_experiment(socket, "DQN", render)
+        run_experiment("DQN", render)
 
 if __name__ == '__main__':
     client_socket = rc.main_connector()
-    main(client_socket)
+    if client_socket :
+        main(client_socket)

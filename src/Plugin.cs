@@ -30,14 +30,18 @@ sealed class Plugin : BaseUnityPlugin
     public static new ManualLogSource Logger;
     bool IsInit;
     bool IsTrain = true;
-    bool IsTimeSetup = false;
     bool endflag = false;
     float timescale = 1.0f;
-    float updatetime = 1.0f;
-    float realupdatetime = 0.0f;
+    float updatetime = 0.2f;
+    bool enable_connect = true;
+    bool body_set = false;
+    Vector2 newPos = new Vector2(680, 200);
+    int action = 4;
+    bool shouldRestartNextFrame;
 
     // --- 타이머 및 상수 필드 추가 ---
     private float logTimer = 0f;
+    private float jumpTimer = 0f;
     private const float logInterval = 0.1f; // 1초 간격
 
     private TcpListener tcpListener;
@@ -65,8 +69,7 @@ sealed class Plugin : BaseUnityPlugin
         
         Logger.LogDebug("RLProject Initialized.");
 
-        if (IsTrain) Time.timeScale = timescale;
-        realupdatetime = updatetime / timescale;
+        if (!enable_connect) return;
 
         listenThread = new Thread(new ThreadStart(StartTcpServer));
         listenThread.IsBackground = true; // 게임 종료 시 스레드 자동 종료
@@ -90,17 +93,56 @@ sealed class Plugin : BaseUnityPlugin
         {
             Logger.LogError($"[Server Error] {ex.Message}");
         }
+        try
+        {
+            byte[] confirmationBytes = new byte[4];
+            int bytesRead = stream.Read(confirmationBytes, 0, confirmationBytes.Length);
+            
+            if (bytesRead > 0)
+            {
+                int confirmationValue = BitConverter.ToInt32(confirmationBytes, 0);
+                Logger.LogInfo($"[C#] Received confirmation signal: {confirmationValue}");
+                timescale = confirmationValue;
+                Time.timeScale = timescale;
+            }
+            else
+            {
+                Logger.LogWarning("[C#] Received 0 bytes (connection closed).");
+
+            }
+        }
+        catch
+        {
+            Logger.LogDebug("Timescale Initialization has failed");
+        }
     }
 
     // --- 핵심 로직: Player.Update 메서드 후킹 ---
     // (Player, Room, PhysicalObject 타입은 게임의 클래스명을 따릅니다.)
     private void Player_UpdateMSC(On.Player.orig_UpdateMSC orig, Player self)
     {
+        if (shouldRestartNextFrame)
+        {
+            // RestartGame()을 호출하고 플래그 초기화
+            self.abstractCreature.Room.realizedRoom.game.RestartGame();
+            shouldRestartNextFrame = false;
+            // endflag 및 body_set 초기화는 재시작 시점에 Player.ctor에서 처리하는 것이 더 안전합니다.
+            // 여기서는 플래그만 초기화
+            endflag = false;
+            body_set = false;
+            orig(self);
+            return; // 현재 프레임은 여기서 종료하고 재시작으로 넘어갑니다.
+        }
         // 1. 타이머 업데이트 및 체크
         logTimer += Time.deltaTime; // Unity의 마지막 프레임 이후 경과 시간
-
-        if (logTimer >= realupdatetime)
+        jumpTimer += Time.deltaTime;
+        if (logTimer >= updatetime)
         {
+            if (!body_set)
+            {
+                position_setting(self);
+                body_set = true;
+            }
             logTimer = 0f; // 타이머 재설정
 
             // 점프를 원할 때
@@ -118,70 +160,81 @@ sealed class Plugin : BaseUnityPlugin
             // (AbstractCreature와 Room은 게임 내에서 정의된 클래스여야 합니다.)
             AbstractRoom currentRoom = self.abstractCreature.Room;
 
-            if (self.dead == true || endflag == true)
+            if (self.dead == true || endflag == true || self.slatedForDeletetion) // <--- slatedForDeletetion 추가
             {
-                int action = SendObservationAndReceiveAction(self);
-                currentRoom.realizedRoom.game.RestartGame();
-                endflag = false;
+                // 게임 종료/클리어 감지 시, 즉시 재시작 대신 예약을 합니다.
+                shouldRestartNextFrame = true; // 다음 프레임에 재시작 예약
+                action = SendObservationAndReceiveAction(self);
             }
             else
             {
-                int action = SendObservationAndReceiveAction(self);
+                // 정상적인 학습 루프
+                action = SendObservationAndReceiveAction(self);
 
-                //=== action space ===
-                //0 : left
-                //1 : right
-                //2 : down
-                //3 : up
-                //4 : jump
+                Logger.LogDebug(action);
+                
                 if (action < 0)
                 {
                     endflag = true;
                 }
-
-
-                //if (currentRoom != null)
-                //{
-                //    // 2) 물리 개체 리스트에 접근 (physicalObjects[0]에 생물이 있다고 가정)
-                //    // (PhysicalObject는 게임 내에서 정의된 클래스여야 합니다.)
-                //    List<AbstractCreature> creatureList = currentRoom.creatures;
-
-                //    Logger.LogInfo($"[RL State] --- Total Creatures: {creatureList.Count} ---");
-
-                //    int creatureIndex = 0;
-                //    foreach (AbstractCreature aCreature in creatureList)
-                //    {
-                //        // 2) 추상 생물체가 현재 방에 '실체화(Realized)'되었는지 확인
-                //        if (aCreature.realizedCreature != null)
-                //        {
-                //            // Player 자신은 추적 목록에서 제외 (선택 사항)
-                //            if (aCreature.realizedCreature == self)
-                //            {
-                //                // Logger.LogInfo($"[RL State] Player: ({self.mainBodyChunk.pos.x:F2}, {self.mainBodyChunk.pos.y:F2}) (Skipping Player in Creature List)");
-                //                continue;
-                //            }
-
-                //            // 3) 실체화된 Creature 객체 (Lizard, 등)에서 위치 정보 추출
-                //            Creature realizedCreature = aCreature.realizedCreature;
-
-                //            // mainBodyChunk는 Creature 클래스에 존재합니다.
-                //            float creatureX = realizedCreature.mainBodyChunk.pos.x;
-                //            float creatureY = realizedCreature.mainBodyChunk.pos.y;
-
-                //            Logger.LogInfo($"[RL State] Creature {creatureIndex}: ({creatureX:F2}, {creatureY:F2})");
-                //            creatureIndex++;
-                //        }
-                //    }
-                //}
-                //else
-                //{
-                //    Logger.LogWarning("[RL State] Player is not currently loaded in a Room.");
-                //}
+                if (action == 5)
+                {
+                    self.wantToJump = 100;
+                    jumpTimer = 0f;
+                }
             }
+        }
+            //=== action space ===
+            //0 : left
+            //1 : right
+            //2 : down
+            //3 : up
+            //4 : stay
+            //5 : jump
+
+        switch (action)
+        {
+            case 0: self.input[0].x = -1; break; // left
+            case 1: self.input[0].x = 1; break;  // right
+            case 2: self.input[0].y = -1; break; // down
+            case 3: self.input[0].y = 1; break;  // up
+            case 4: break;
+            break;
+        // -1 (종료 신호) 등은 default에서 처리
+        default: break;
+        }
+        if (jumpTimer < 1.0f)
+        {
+            self.input[0].jmp = true;
         }
         orig(self); // 원본 Player.Update 메서드 호출 (필수)
     }
 
+    private void position_setting(Player self)
+    {
+
+        // 3. 모든 BodyChunk 순회 및 위치/속도 설정
+        if (self.bodyChunks != null)
+        {
+            foreach (BodyChunk chunk in self.bodyChunks)
+            {
+                // 위치 설정 (teleport)
+                chunk.pos = newPos;
+                // 직전 위치도 동일하게 설정 (안정적인 텔레포트 효과)
+                chunk.lastPos = newPos;
+                    
+                // 속도 초기화 (정지 상태로 시작)
+                chunk.vel = Vector2.zero; // Vector2.zero는 (0f, 0f)와 동일합니다.
+            }
+
+            Plugin.Logger.LogInfo($"[RL] Player and all BodyChunks initialized at ({newPos.x}, {newPos.y}) with zero velocity.");
+        }
+        else
+        {
+            Plugin.Logger.LogWarning("[RL] Player bodyChunks array was null during ctor.");
+        }
+    }
+    
     private List<float> GetCurrentObservationData(Player self)
     {
         // --- 1. 플레이어 위치 추출 ---
@@ -233,20 +286,23 @@ sealed class Plugin : BaseUnityPlugin
 
     private int SendObservationAndReceiveAction(Player self)
     {
-        if (stream == null || !client.Connected) return -1;
+        if (!enable_connect) return 400;
+        if (stream == null || !client.Connected) return 404;
 
         try
         {
-            List<float> obsData = GetCurrentObservationData(self);
-                        
-            float[] dataToSend = new float[] {
-                obsData[0], obsData[1], obsData[2], obsData[3], obsData[4], obsData[5], obsData[6], obsData[7]
-            };
-
-            if (self.dead == true)
+            float[] dataToSend;
+            if (shouldRestartNextFrame)
             {
                 dataToSend = new float[] {
                     -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f
+                };
+            }
+            else
+            {
+                List<float> obsData = GetCurrentObservationData(self);
+                dataToSend = new float[] {
+                    obsData[0], obsData[1], obsData[2], obsData[3], obsData[4], obsData[5], obsData[6], obsData[7]
                 };
             }
 
