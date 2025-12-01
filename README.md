@@ -11,6 +11,10 @@
 4. 알고리즘 및 running speed 설정 : 
 running speed만큼 게임 속도를 배속한다. 학습을 가속하나 오류 발생 가능성도 올라간다.
 
+### 게임 안에서
+아레나 -> 샌드박스에서 아래와 같이 세팅
+<img width="1368" height="807" alt="Image" src="https://github.com/user-attachments/assets/84e1a198-78f5-41e9-b9f6-77ab8188f056" />
+<img width="1368" height="807" alt="Image" src="https://github.com/user-attachments/assets/9c80dd3f-441e-4b03-9607-e2a427ca40c6" />
 
 Use this template on GitHub or just [download the code](https://github.com/alduris/TemplateMod/archive/refs/heads/master.zip), whichever is easiest.
 
