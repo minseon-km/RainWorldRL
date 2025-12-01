@@ -61,7 +61,12 @@ def receive_data(client):
         
         # 3. 받은 데이터를 별도로 저장 (강화 학습의 Observation)
         observation = np.array(received_floats)
-        
+        observation[:6:2] /= 1366
+        observation[1:6:2] /= 768
+        observation[2] -= observation[0] #상대위치로 변환
+        observation[3] -= observation[1]
+        observation[4] -= observation[0]
+        observation[5] -= observation[1]
         return observation
 
     except ConnectionAbortedError:

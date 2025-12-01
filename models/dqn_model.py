@@ -1,4 +1,3 @@
-# libraries
 import gymnasium as gym
 import collections
 import random
@@ -11,21 +10,19 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 import rainworld_connector as rc
-
 import modelloader as ml
 
 # hyperparameters
-learning_rate = 0.0005
-gamma = 0.98
+#learning_rate = 0.0005
+# gamma = 0.98
 buffer_limit = 50000        # size of replay buffer
 batch_size = 32
+terminal_step = 600
+
 #x, y, position of all four creatures
 state_length = 8 #to implement, adjust this as 8
 #jump, or move to four direction
 action_length = 6 #same as above, adjust this as 6
-rspeed = 1
-client_socket = None
-terminal_step = 600
 
 class ReplayBuffer():
     def __init__(self):
@@ -101,7 +98,7 @@ class DuelingQnet(nn.Module):
         else:
             return out.argmax().item()
 
-def train_dqn(q, q_target, memory, optimizer):
+def train_dqn(q, q_target, memory, optimizer, gamma):
     """Standard DQN training"""
     for i in range(10):
         s,a,r,s_prime,done_mask = memory.sample(batch_size)
@@ -119,7 +116,7 @@ def train_dqn(q, q_target, memory, optimizer):
         loss.backward()
         optimizer.step()
 
-def train_double_dqn(q, q_target, memory, optimizer):
+def train_double_dqn(q, q_target, memory, optimizer, gamma):
     """Double DQN training"""
     for i in range(10):
         s,a,r,s_prime,done_mask = memory.sample(batch_size)
@@ -138,13 +135,11 @@ def train_double_dqn(q, q_target, memory, optimizer):
         loss.backward()
         optimizer.step()
 
-def run_experiment(algorithm_type="DQN", render=False):
+def run_experiment_dqn(algorithm_type="DQN", render=False, client_socket=None, lr=1e-3, gamma=0.99):
     """Run experiment with specified algorithm type"""
 
     modelload = input("Load Model? only for double DQN and DQN. (y, yes / No): ")
     loadflag = modelload in ['y', 'yes']
-
-    
 
     print(f"\n=== Running {algorithm_type} Experiment ===")
 
@@ -167,16 +162,21 @@ def run_experiment(algorithm_type="DQN", render=False):
 
     print_interval = 10
     score = 0.0
-    optimizer = optim.Adam(q.parameters(), lr=learning_rate)
+    # optimizer = optim.Adam(q.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(q.parameters(), lr=lr)
+
+    scores = []
+    episodes = []
 
     # for 3000 episodes
-    for n_epi in range(10):
+    for n_epi in range(3000):
         epsilon = max(0.01, 0.32 - 0.01*(n_epi/50)) #Linear annealing from 8% to 1%
         s = rc.receive_data(client_socket)
         #print(s.shape)
         a = q.sample_action(torch.from_numpy(s).float(), epsilon)
         done = False
         timestamp = 0
+        episode_reward = 0.0
 
         while not done:
             a = q.sample_action(torch.from_numpy(s).float(), epsilon)
@@ -190,11 +190,14 @@ def run_experiment(algorithm_type="DQN", render=False):
             elif terminate :
                 r = 100
             else :
-                r = 1 
+                r = 1
             memory.put((s,a,r/100.0,s_prime, done_mask))
             s = s_prime
 
+            timestamp += 1
+
             score += r
+            episode_reward += r
             if done:
                 rc.send_data(client_socket, -1)
                 break
@@ -203,8 +206,11 @@ def run_experiment(algorithm_type="DQN", render=False):
                 rc.send_data(client_socket, -1)
                 break
 
+        scores.append(episode_reward)
+        episodes.append(n_epi)
+
         if memory.size()>200:
-            train_fn(q, q_target, memory, optimizer)
+            train_fn(q, q_target, memory, optimizer, gamma)
 
         if n_epi%print_interval==0 and n_epi!=0:
             q_target.load_state_dict(q.state_dict())
@@ -212,54 +218,4 @@ def run_experiment(algorithm_type="DQN", render=False):
                                                             n_epi, score/print_interval, memory.size(), epsilon*100))
             score = 0.0
 
-    return q, q_target
-
-def main(socket):
-    """Run experiments for all three algorithms"""
-    algorithms = ["DQN", "Double_DQN", "Dueling_DQN"]
-
-    print("Choose algorithm to run:")
-    print("1. DQN")
-    print("2. Double DQN")
-    print("3. Dueling DQN")
-    print("4. Run all algorithms")
-
-    choice = input("Enter your choice (1-4): ")
-
-    
-
-
-    # Ask about rendering
-    #render_choice = input("Enable GUI visualization? (y/n): ").lower()
-    #render = render_choice in ['y', 'yes']
-    render = False
-    
-    try :
-        rspeed = int(input("Running speed? (xN times faster) : "))
-    except :
-        rspeed = 1
-    print(f"Running speed : {rspeed}")
-    rc.send_data(client_socket, rspeed)
-
-    if choice == "1":
-        q, q_target = run_experiment("DQN", render)
-    elif choice == "2":
-        q, q_target = run_experiment("Double_DQN", render)
-    elif choice == "3":
-        q, q_target = run_experiment("Dueling_DQN", render)
-    elif choice == "4":
-        for alg in algorithms:
-            run_experiment(alg, render)
-    else:
-        print("Invalid choice, running DQN by default")
-        q, q_target = run_experiment("DQN", render)
-    
-    ml.save_model(q, './models', 'q')
-    ml.save_model(q_target, './models', 'q_target')
-
-    
-
-if __name__ == '__main__':
-    client_socket = rc.main_connector()
-    if client_socket :
-        main(client_socket)
+    return scores, episodes

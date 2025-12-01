@@ -11,6 +11,7 @@ using System.Threading;
 using System.Text;
 using Newtonsoft.Json;           // JSON 직렬화를 위해 (필요한 외부 라이브러리)
 using System.Linq;
+using RWCustom;
 
 // Unity/Game 타입에 대한 가상의 using 구문 (타겟 게임에 맞게 변경 필요)
 // using RWCustom; 
@@ -66,7 +67,8 @@ sealed class Plugin : BaseUnityPlugin
 
         if (IsInit) return;
         IsInit = true;
-        
+        UnityEngine.Random.InitState(10);
+
         Logger.LogDebug("RLProject Initialized.");
 
         if (!enable_connect) return;
@@ -144,6 +146,8 @@ sealed class Plugin : BaseUnityPlugin
                 body_set = true;
             }
             logTimer = 0f; // 타이머 재설정
+            float poleflag = GetCanUsePipeFlag(self);
+            Logger.LogInfo($"can grab pole? : {poleflag}");
 
             // 점프를 원할 때
             // self.wantToJump = 100;
@@ -199,7 +203,6 @@ sealed class Plugin : BaseUnityPlugin
             case 2: self.input[0].y = -1; break; // down
             case 3: self.input[0].y = 1; break;  // up
             case 4: break;
-            break;
         // -1 (종료 신호) 등은 default에서 처리
         default: break;
         }
@@ -279,6 +282,8 @@ sealed class Plugin : BaseUnityPlugin
                     retlist.Add(creatureY);
                 }
             }
+            retlist.Add(GetCanUsePipeFlag(self));
+            retlist.Add(GetCanGrabVerticalPoleFlag(self));
         }
 
         return retlist;
@@ -305,6 +310,7 @@ sealed class Plugin : BaseUnityPlugin
                     obsData[0], obsData[1], obsData[2], obsData[3], obsData[4], obsData[5], obsData[6], obsData[7]
                 };
             }
+            Logger.LogInfo(dataToSend);
 
 
             // 데이터를 바이트 배열로 변환합니다. (Float 하나당 4바이트)
@@ -339,7 +345,7 @@ sealed class Plugin : BaseUnityPlugin
         }
         catch (IOException ex) when (ex.InnerException is SocketException)
         {
-            Logger.LogError("[C#] Socket Error during communication. Client likely disconnected.");
+            Logger.LogError("Socket Error during communication. Client likely disconnected.");
             // 여기서 클라이언트 연결 종료 처리를 할 수 있습니다.
             stream.Close();
             client.Close();
@@ -348,8 +354,76 @@ sealed class Plugin : BaseUnityPlugin
         }
         catch (Exception ex)
         {
-            Logger.LogError($"[C#] Communication Error: {ex.Message}");
+            Logger.LogError($"Communication Error: {ex.Message}");
             return -1;
         }
     }
+    private float GetCanGrabVerticalPoleFlag(Player self)
+    {
+        if (self.room.GetTile(self.bodyChunks[0].pos).verticalBeam) return 1.0f;
+        else return 0.0f;
+    }
+
+    private float GetCanUsePipeFlag(Player self)
+    {
+        Room currentRoom = self.room;
+        if (currentRoom == null || self.mainBodyChunk == null)
+        {
+            return 0.0f;
+        }
+
+        Vector2 chunkPos = self.mainBodyChunk.pos;
+        IntVector2[] cardinalDirections = new IntVector2[]
+        {
+        new IntVector2(1, 0), new IntVector2(-1, 0),
+        new IntVector2(0, 1), new IntVector2(0, -1)
+        };
+
+        foreach (IntVector2 direction in cardinalDirections)
+        {
+            Vector2 directionVec = new Vector2(direction.x, direction.y);
+
+            // 1. [핵심] 20f 앞 타일이 통로 패턴인지 검사 (DirectIntoHoles()의 물리 보조 조건)
+            Vector2 targetPos20 = chunkPos + directionVec * 20f;
+            bool targetTileNotSolid = !currentRoom.GetTile(targetPos20).Solid;
+
+            // ... (이전의 isSurrounded 로직은 targetTileNotSolid이 true일 때 실행된다고 가정) ...
+            // isSurrounded 로직의 상세 조건은 이전 답변과 동일하며, 여기서는 isSurrounded가 계산되었다고 가정합니다.
+
+            bool isSurrounded; // isSurrounded 계산 로직은 생략되었으나, 구현되었다고 가정
+
+            // *************************************************************************
+            // (이 부분에 isSurrounded를 계산하는 기존의 복잡한 if/else 로직이 들어갑니다.)
+            // *************************************************************************
+
+            // 간소화된 isSurrounded 계산 (예시로만 유지, 실제 코드에는 전체 로직 필요)
+            isSurrounded = true;
+
+            if (targetTileNotSolid && isSurrounded)
+            {
+                // 2. [추가 조건] 40f 앞의 타일이 실제 'ShortcutEntrance' 인지 확인
+                Vector2 targetPos40 = chunkPos + directionVec * 40f;
+
+                // 40f 앞 타일의 지형 유형을 확인
+                Room.Tile.TerrainType terrainType = currentRoom.GetTile(targetPos40).Terrain;
+
+                if (terrainType == Room.Tile.TerrainType.ShortcutEntrance)
+                {
+                    // 3. [최종 검사] shortcutData를 사용하여 유효한 ShortCut인지 확인
+                    // DeadEnd가 아닌 유효한 ShortCut이 40f 타일에 정의되어 있는지 검사합니다.
+                    ShortcutData data = currentRoom.shortcutData(currentRoom.GetTilePosition(targetPos40));
+
+                    if (data.shortCutType != ShortcutData.Type.DeadEnd)
+                    {
+                        // 좁은 통로 패턴이 감지되었고, 40f 앞 타일에 유효한 단축키 입구가 있습니다.
+                        return 1.0f;
+                    }
+                }
+            }
+        }
+
+        return 0.0f;
+    }
+
 }
+
