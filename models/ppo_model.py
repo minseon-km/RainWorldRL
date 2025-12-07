@@ -104,25 +104,25 @@ def run_experiment_ppo(client_socket, lr=1e-3, gamma=0.99):
     scores = []
     episodes = []
 
-    for n_epi in range(1000):
+    for n_epi in range(1500):
         s = rc.receive_data(client_socket)
         done = False
         episode_reward = 0.0
         timestamp = 0
+        prob = model.pi(torch.from_numpy(s).float())
+        m = Categorical(prob)
+        a = m.sample().item()
+        rc.send_data(client_socket, a)
         while not done:
             for t in range(T_horizon):
-                prob = model.pi(torch.from_numpy(s).float())
-                m = Categorical(prob)
-                a = m.sample().item()
-                rc.send_data(client_socket, a)
                 s_prime = rc.receive_data(client_socket)
                 done = True if s_prime[0] < 0 else False
                 terminate = True if timestamp > terminal_step else False
                 done_mask = 0.0 if done else 1.0
                 if done :
-                    r = 0
+                    r = -10
                 elif terminate :
-                    r = 100
+                    r = 10
                 else :
                     r = 1
                 model.put_data((s, a, r/100.0, s_prime, prob[a].item(), done))
@@ -138,6 +138,11 @@ def run_experiment_ppo(client_socket, lr=1e-3, gamma=0.99):
                     print(n_epi, "success!")
                     rc.send_data(client_socket, -1)
                     break
+                
+                prob = model.pi(torch.from_numpy(s).float())
+                m = Categorical(prob)
+                a = m.sample().item()
+                rc.send_data(client_socket, a)
 
             model.train_net(gamma)
 

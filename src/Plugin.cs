@@ -50,7 +50,7 @@ sealed class Plugin : BaseUnityPlugin
     private TcpClient client;
     private NetworkStream stream;
 
-    private const int PORT = 50000; // 사용할 포트 번호
+    private const int PORT = 52000; // 사용할 포트 번호
     public void OnEnable()
     {
         Logger = base.Logger;
@@ -59,6 +59,44 @@ sealed class Plugin : BaseUnityPlugin
         // --- Player.Update 후킹 추가 ---
         // Player 인스턴스(self)를 매 프레임 얻을 수 있습니다.
         On.Player.UpdateMSC += Player_UpdateMSC;
+        On.Menu.ArenaOverlay.Update += ArenaOverlay_Update;
+    }
+
+    private void ArenaOverlay_Update(On.Menu.ArenaOverlay.orig_Update orig, Menu.ArenaOverlay self)
+    {
+        Logger.LogInfo("Restarted!!");
+        shouldRestartNextFrame = false;
+        // endflag 및 body_set 초기화는 재시작 시점에 Player.ctor에서 처리하는 것이 더 안전합니다.
+        // 여기서는 플래그만 초기화
+        endflag = false;
+        body_set = false;
+
+        // 원본 Update 로직 실행 (메뉴 애니메이션 및 카운터가 업데이트됩니다.)
+        orig(self);
+
+        // RL 에이전트가 재시작을 원한다고 가정하고, 첫 번째 플레이어(i=0)를 대상으로 조작합니다.
+        int playerIndex = 0;
+
+        // 1. 결과 상자 카운터가 충분히 경과했고 (allResultBoxesInPlaceCounter > 10),
+        // 2. 해당 플레이어가 아직 다음 라운드를 준비하지 않았다면,
+        if (self.allResultBoxesInPlaceCounter > 10 &&
+            !self.result[playerIndex].readyForNextRound)
+        {
+            // --- 1. 필수 내부 상태 변경 ---
+            // 플레이어의 '계속 버튼' 플래그를 눌린 상태로 만듭니다. (입력이 들어온 것과 동일한 효과)
+            self.result[playerIndex].readyForNextRound = true;
+
+            // *옵션:* 플레이어가 버튼을 눌렀다는 플래그를 메뉴에 전달할 수도 있습니다.
+            // self.playersContinueButtons[playerIndex] = true; 
+
+            // --- 2. 재시작 로직 호출 ---
+            // result[i].readyForNextRound가 true가 되면, 이 함수를 호출하여 재시작을 처리합니다.
+            // (원본 코드에서도 이 시점에 호출됩니다.)
+            self.PlayerPressedContinue();
+
+            // 선택적으로, 재시작이 예약되었음을 알리는 로그를 남깁니다.
+            // Plugin.Logger.LogInfo("[Menu] Forced continue and restart initiated.");
+        }
     }
 
     private void OnModsInit(On.RainWorld.orig_OnModsInit orig, RainWorld self)
@@ -125,10 +163,9 @@ sealed class Plugin : BaseUnityPlugin
     {
         if (shouldRestartNextFrame)
         {
-            // RestartGame()을 호출하고 플래그 초기화
-            self.abstractCreature.Room.realizedRoom.game.RestartGame();
             shouldRestartNextFrame = false;
             // endflag 및 body_set 초기화는 재시작 시점에 Player.ctor에서 처리하는 것이 더 안전합니다.
+            self.abstractCreature.Room.realizedRoom.game.RestartGame();
             // 여기서는 플래그만 초기화
             endflag = false;
             body_set = false;
@@ -146,17 +183,15 @@ sealed class Plugin : BaseUnityPlugin
                 body_set = true;
             }
             logTimer = 0f; // 타이머 재설정
-            float poleflag = GetCanUsePipeFlag(self);
-            Logger.LogInfo($"can grab pole? : {poleflag}");
 
             // 점프를 원할 때
             // self.wantToJump = 100;
 
-            // --- A. 플레이어 위치 (x, y) 추출 및 출력 ---
-            // self.mainBodyChunk.pos.x/y는 BepInEx 환경에서 게임의 타입을 사용해야 합니다.
-            float playerX = self.mainBodyChunk.pos.x;
-            float playerY = self.mainBodyChunk.pos.y;
-            Logger.LogInfo($"[RL State] Player Pos: ({playerX:F2}, {playerY:F2})");
+            //// --- A. 플레이어 위치 (x, y) 추출 및 출력 ---
+            //// self.mainBodyChunk.pos.x/y는 BepInEx 환경에서 게임의 타입을 사용해야 합니다.
+            //float playerX = self.mainBodyChunk.pos.x;
+            //float playerY = self.mainBodyChunk.pos.y;
+            //Logger.LogInfo($"[RL State] Player Pos: ({playerX:F2}, {playerY:F2})");
 
             // --- B. 존재하는 모든 생물의 위치 (x, y) 추출 및 출력 ---
 

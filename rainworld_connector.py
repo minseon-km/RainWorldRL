@@ -1,12 +1,11 @@
-﻿# -*- coding: utf-8 -*-
-
+﻿# -*- coding: utf-8 -*-1
 import socket
 import struct
 import numpy as np
 import time
 
 HOST = '127.0.0.1'
-PORT = 50000
+PORT = 52000
 DATA_SIZE = 8 # 전송받을 float 개수 (8개)
 FLOAT_BYTE_SIZE = 4 # float 하나당 4바이트
 

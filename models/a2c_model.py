@@ -94,13 +94,14 @@ def run_experiment_a2c(client_socket, lr=1e-3, gamma=0.99):
     scores = []
     episodes = []
 
-    for epoch in range(3000):
+    epoch = 0
+    while epoch < 1500 :
         # state, _ = env.reset()
         state = rc.receive_data(client_socket)
         episode_reward = 0
         timestamp = 0
 
-        for time_steps in range(500):
+        while True:
             k += 1
             state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
             action, log_prob = policy.selection_action(state_tensor) # action과 log_prob을 함께 받음
@@ -111,9 +112,9 @@ def run_experiment_a2c(client_socket, lr=1e-3, gamma=0.99):
             done = True if next_state[0] < 0 else False
             terminate = True if timestamp > terminal_step else False
             if done:
-                reward = 0
+                reward = -10
             elif terminate:
-                reward = 100
+                reward = 10
             else:
                 reward = 1
             episode_reward += reward
@@ -157,11 +158,13 @@ def run_experiment_a2c(client_socket, lr=1e-3, gamma=0.99):
                 rc.send_data(client_socket, -1)
                 break
             state = next_state
-
+        if episode_reward == -10 :
+            continue
         scores.append(episode_reward)
         episodes.append(epoch)
 
         if epoch % 10 == 0:
             print('Epoch:{}, episode reward is {}'.format(epoch, episode_reward))
+        epoch += 1
 
     return scores, episodes

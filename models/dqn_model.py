@@ -137,10 +137,6 @@ def train_double_dqn(q, q_target, memory, optimizer, gamma):
 
 def run_experiment_dqn(algorithm_type="DQN", render=False, client_socket=None, lr=1e-3, gamma=0.99):
     """Run experiment with specified algorithm type"""
-
-    modelload = input("Load Model? only for double DQN and DQN. (y, yes / No): ")
-    loadflag = modelload in ['y', 'yes']
-
     print(f"\n=== Running {algorithm_type} Experiment ===")
 
     # Initialization
@@ -149,12 +145,8 @@ def run_experiment_dqn(algorithm_type="DQN", render=False, client_socket=None, l
         q_target = DuelingQnet()
         train_fn = train_double_dqn  # Dueling uses Double DQN training
     else:
-        if loadflag :
-            q = ml.load_model(Qnet(), "./models", "q")
-            q_target = ml.load_model(Qnet(), "./models", "q_target")
-        else :
-            q = Qnet()
-            q_target = Qnet()
+        q = Qnet()
+        q_target = Qnet()
         train_fn = train_dqn if algorithm_type == "DQN" else train_double_dqn
 
     q_target.load_state_dict(q.state_dict())
@@ -169,8 +161,8 @@ def run_experiment_dqn(algorithm_type="DQN", render=False, client_socket=None, l
     episodes = []
 
     # for 3000 episodes
-    for n_epi in range(3000):
-        epsilon = max(0.01, 0.32 - 0.01*(n_epi/50)) #Linear annealing from 8% to 1%
+    for n_epi in range(1500):
+        epsilon = max(0.01, 0.3 * np.exp(-n_epi / 300)) #Linear annealing from 8% to 1%
         s = rc.receive_data(client_socket)
         #print(s.shape)
         a = q.sample_action(torch.from_numpy(s).float(), epsilon)
@@ -186,9 +178,9 @@ def run_experiment_dqn(algorithm_type="DQN", render=False, client_socket=None, l
             terminate = True if timestamp > terminal_step else False
             done_mask = 0.0 if done else 1.0
             if done :
-                r = 0
+                r = -10
             elif terminate :
-                r = 100
+                r = 10
             else :
                 r = 1
             memory.put((s,a,r/100.0,s_prime, done_mask))
